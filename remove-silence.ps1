@@ -10,11 +10,13 @@ foreach ($file in $files){
   ffmpeg -i $file.fullname -af silencedetect=n=-35dB:d=0.5 -f null - 2>silences.tmp
 
   $starts = @(get-content silences.tmp | 
+    # assumes ffmpeg output format "[silencedetect @ <something>] silence_start: <seconds>"
     Where-Object {$_ -like "*silencedetect*silence_start*"} | 
     ForEach-Object{$_.split(":")[1].replace(" ","")} |
     ForEach-Object{([double]$_ + 0.125).toString("0.####").replace(",",".")}
   )
   $ends = @(get-content silences.tmp | 
+    # assumes ffmpeg output format "[silencedetect @ <something>] silence_end: <seconds> | silence_duration: <seconds>"
     Where-Object {$_ -like "*silencedetect*silence_end*"} | 
     ForEach-Object{$_.split(":")[1].split("|")[0].replace(" ","")} |
     ForEach-Object{([double]$_ - 0.125).toString("0.####").replace(",",".")}
