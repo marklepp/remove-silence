@@ -1,16 +1,48 @@
 function removeSilenceFromMp4 () {
+  Param ([switch]$Reconvert)
+
   if (-not (get-command ffmpeg -ErrorAction SilentlyContinue)) {
     "ffmpeg is not found, add it to PATH"
     return
   }
-  $files = Get-ChildItem *.mp4 -Exclude *_removed_silence.mp4
+  
+  function FileAvailable([string]$filePath){
+    if (-not (Test-Path $filePath)) {
+      return $false
+    }
+    Rename-Item $filePath $filePath -ErrorVariable errs -ErrorAction SilentlyContinue
+    return -not ($errs.Count -ne 0)
+  }
 
+  function get-OutputFileName ($file) {
+    (
+      $file.directoryname + 
+      [IO.Path]::DirectorySeparatorChar + 
+      $file.basename + "_removed_silence" + $file.extension
+    )
+  }
 
-  $videoFilterFile = "vf.tmp"
-  $audioFilterFile = "af.tmp"
-  # silences.tmp is used for silencedetect-output
+  function get-mp4s ($alreadyProcessedFiles) {
+    Get-ChildItem *.mp4 -Exclude *_removed_silence.mp4 | 
+      Where-Object {
+        $outputfile = get-OutputFileName $_
+        ((-not $alreadyProcessedFiles[$_.fullname]) -and 
+          ($_.length -gt 0kb) -and 
+          (FileAvailable $_.fullname) -and 
+          ($Reconvert -or (-not (test-path $outputfile))))
+      }
+  }
 
-  foreach ($file in $files){
+  $alreadyProcessedFiles = @{}
+  $files = get-mp4s $alreadyProcessedFiles
+
+  while ($files.length -gt 0) {
+    $file = $files[0]
+
+    $videoFilterFile = "vf.tmp"
+    $audioFilterFile = "af.tmp"
+    # silences.tmp is used for silencedetect-output
+
     Write-host ("Detecting silence in " + $file.name + "...")
     ffmpeg -i $file.fullname -af silencedetect=n=-35dB:d=0.5 -f null - 2>silences.tmp
 
@@ -36,7 +68,7 @@ function removeSilenceFromMp4 () {
       "select='1-" + $removes + "', setpts=N/FRAME_RATE/TB" | set-content $videoFilterFile
       "aselect='1-" + $removes + "', asetpts=N/SR/TB" | set-content $audioFilterFile
       
-      $outputfile = $file.directoryname + [IO.Path]::DirectorySeparatorChar + $file.basename + "_removed_silence" + $file.extension
+      $outputfile = get-OutputFileName $file
       
       ffmpeg -i $file.fullname -filter_script:v $videoFilterFile -filter_script:a $audioFilterFile $outputfile
     }
@@ -44,5 +76,9 @@ function removeSilenceFromMp4 () {
     if(test-path silences.tmp){ remove-item silences.tmp }
     if(test-path $videoFilterFile) { remove-item $videoFilterFile }
     if(test-path $audioFilterFile) { remove-item $audioFilterFile }
+    
+    $alreadyProcessedFiles.add($file.fullname, $true)
+    $files = get-mp4s $alreadyProcessedFiles
   }
+
 }
