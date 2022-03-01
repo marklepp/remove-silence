@@ -1,4 +1,8 @@
 function removeSilenceFromMp4 () {
+  if (-not (get-command ffmpeg -ErrorAction SilentlyContinue)) {
+    "ffmpeg is not found, add it to PATH"
+    return
+  }
   $files = Get-ChildItem *.mp4 -Exclude *_removed_silence.mp4
 
 
