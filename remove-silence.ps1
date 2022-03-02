@@ -43,8 +43,16 @@ function removeSilenceFromMp4 () {
     $audioFilterFile = "af.tmp"
     # silences.tmp is used for silencedetect-output
 
-    Write-host ("Detecting silence in " + $file.name + "...")
-    ffmpeg -i $file.fullname -af silencedetect=n=-35dB:d=0.5 -f null - 2>silences.tmp
+    Write-host ("Detecting mean volume in " + $file.name + "...")
+    ffmpeg -hide_banner -i $file.fullname -af volumedetect -vn -sn -dn -f null NUL 2>silences.tmp
+    $mean_volume = @(get-content silences.tmp | 
+      # assumes ffmpeg output format "[*volumedetect* @ <something>] mean_volume: <number> dB"
+      Where-Object {$_ -like "*volumedetect*mean_volume*"} | 
+      ForEach-Object{$_.split(":")[1].replace(" ","").replace("dB","")}
+    )
+    
+    Write-host ("Detecting silence in " + $file.name + " using mean volume ${mean_volume}dB as threshold...")
+    ffmpeg -hide_banner -i $file.fullname -af "silencedetect=n=${mean_volume}dB:d=0.5" -vn -sn -dn -f null - 2>silences.tmp
 
     $starts = @(get-content silences.tmp | 
       # assumes ffmpeg output format "[silencedetect @ <something>] silence_start: <seconds>"
@@ -70,7 +78,7 @@ function removeSilenceFromMp4 () {
       
       $outputfile = get-OutputFileName $file
       
-      ffmpeg -i $file.fullname -filter_script:v $videoFilterFile -filter_script:a $audioFilterFile $outputfile
+      ffmpeg -hide_banner -i $file.fullname -filter_script:v $videoFilterFile -filter_script:a $audioFilterFile $outputfile
     }
 
     if(test-path silences.tmp){ remove-item silences.tmp }
